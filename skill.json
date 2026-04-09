@@ -1,0 +1,63 @@
+{
+  "name": "ui-testing-skill",
+  "description": "复用本地已登录 Chrome 会话的 UI 自动化测试工具：先分析页面并沉淀 path 级 playbook，再按优先级执行 E2E 用例并输出标准化报告。",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "triggers": [
+    "ui 自动化测试",
+    "UI 测试",
+    "E2E 测试",
+    "Playbook",
+    "测试报告",
+    "页面遍历",
+    "更新用例",
+    "查询 Playbook",
+    "查询报错",
+    "导出测试报告"
+  ],
+  "inputs": {
+    "url": {
+      "type": "string",
+      "required": true,
+      "description": "待测试的完整 http/https URL"
+    },
+    "updateCase": {
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "是否更新用例；true 表示重新遍历并覆盖 Playbook"
+    },
+    "command": {
+      "type": "string",
+      "required": false,
+      "description": "辅助指令，如 queryPlaybook、exportReport、stopTest、queryErrors、editCase、deleteCase"
+    },
+    "instruction": {
+      "type": "string",
+      "required": false,
+      "description": "用户的自然语言补充要求"
+    }
+  },
+  "outputs": {
+    "status": "number",
+    "message": "string",
+    "data": "object"
+  },
+  "capabilities": [
+    "url_validation",
+    "site_bfs_traversal",
+    "playbook_generation",
+    "playbook_query",
+    "playbook_editing",
+    "e2e_execution",
+    "error_aggregation",
+    "markdown_report_generation"
+  ],
+  "constraints": [
+    "仅处理单个 URL",
+    "仅适用于 Web UI 测试",
+    "仅遍历待测域名内页面",
+    "不执行恶意、破坏性或越权操作",
+    "不持久化存储敏感凭据"
+  ]
+}
