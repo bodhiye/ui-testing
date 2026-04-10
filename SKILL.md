@@ -1,5 +1,5 @@
 ---
-name: ui-testing-skill
+name: ui-testing
 description: 基于 Chrome DevTools MCP 的零脚本 UI 自动化测试 Skill：输入 URL 自动遍历页面并沉淀/复用 Playbook，执行 E2E 并输出标准化报告（MCP 优先，支持 CDP Proxy 降级）。
 version: 1.0.0
 triggers:
@@ -15,7 +15,7 @@ triggers:
   + 导出测试报告
 ---
 
-# ui-testing-skill
+# ui-testing
 
 ## 作用
 
@@ -34,7 +34,7 @@ triggers:
 
 典型触发语：
 
-* “用 ui-testing-skill 测试 <https://example.com>”
+* “用 ui-testing 测试 <https://example.com>”
 * “测试这个站点并更新用例”
 * “查询 example.com 的 Playbook”
 * “查询本次测试的报错明细”
@@ -132,11 +132,11 @@ curl -sS "http://127.0.0.1:${PORT}/json/list"
 * `evaluate_script` — 执行 JavaScript（处理复杂交互）
 * `handle_dialog` — 处理 alert/confirm 弹窗
 * `wait_for` — 等待页面文本出现
-* `list_pages` / `select_page` — 多标签页管理
+* `list_pages` / `select_page` / `close_page` — 多标签页管理与清理
 
 当 MCP 工具不可用时，使用 CDP Proxy 模式（见下文）作为降级兜底。
 
-### 驱动选择与降级（统一逻辑）
+### 驱动选择与降级
 
 执行任何测试前，先做“驱动探活”，选择 MCP 或 CDP 两种驱动之一。后续所有浏览器操作都必须走同一套“统一接口”，只切换底层驱动实现。
 
@@ -157,6 +157,7 @@ curl -sS "http://127.0.0.1:${PORT}/json/list"
 | 列表页 | `list_pages()` | `GET http://127.0.0.1:${PROXY_PORT}/list_pages` |
 | 选页 | `select_page(pageId/targetId)` | `POST /select_page` |
 | 新建页 | `new_page(url)` | `POST /new_page` |
+| 关页 | `close_page(pageId)` | `POST /close_page` |
 | 导航 | `navigate_page({type:'url', url})` | `POST /navigate_page` |
 | 执行脚本 | `evaluate_script({function, args})` | `POST /evaluate_script` |
 | 快照 | `take_snapshot({verbose})` | `POST /take_snapshot` |
@@ -177,21 +178,16 @@ CHROME_PORT=${PORT} PROXY_PORT=8888 node ./scripts/cdp-proxy.mjs
 * `PROXY_PORT`：CDP Proxy HTTP 监听端口（默认 8888）
 * CDP Proxy 需要 Node.js 22+（使用内置 WebSocket）
 
-#### 4) 临时执行脚本清理
+#### 4) 临时执行脚本产物
 
-当 Agent 在 `CDP Driver` 模式下，因宿主能力限制必须临时生成辅助执行脚本（例如 `run_test.mjs` ）时，必须遵循以下规则：
+当 Agent 在 `CDP Driver` 模式下，因执行复杂流程需要临时生成辅助执行脚本（例如 `run_test.mjs` ）时，按以下规则处理：
 
 * 临时脚本只能放在本轮运行目录 `playbooks/{domain}/{YYYYMMDDHHmm}/` 下
-* 临时脚本仅用于本轮执行，禁止作为长期产物保留
-* 测试完成后，必须在返回用户前自动删除临时脚本
-* 最终保留的运行目录产物只应包含：
-
-  * `report.md`
-  * `results.json`（若生成结构化结果）
-  * 截图文件（`*.png`）
-  * 其他明确对用户有价值的日志或附件
-
-* 若临时脚本删除失败，应在最终结果中明确说明失败原因与残留路径
+* 临时脚本默认**保留**，作为本轮测试产物的一部分，便于复现、排查和二次执行
+* 若用户明确要求“清理临时文件”或“只保留最终产物”，才额外删除临时脚本
+* 最终运行目录允许保留 `report.md`、`results.json`、截图文件（`*.png`）、临时执行脚本（如 `run_test.mjs` ）以及其他明确对用户有价值的日志或附件
+* 若执行过程中生成了多个临时脚本，应优先复用并收敛，避免在单个运行目录内留下无意义的重复脚本
+* 若用户要求清理但删除失败，应在最终结果中明确说明失败原因与残留路径
 
 ## Inputs
 
@@ -236,7 +232,8 @@ CHROME_PORT=${PORT} PROXY_PORT=8888 node ./scripts/cdp-proxy.mjs
 07. **Playbook 复用优先**：未明确要求更新用例时，优先读取现有 Playbook。
 08. **不中断全局流程**：单个页面或单个用例失败时，记录问题并继续后续流程。
 09. **可追溯**：关键步骤、报错、截图、报告都要可关联到 URL、用例和步骤。
-10. **安全合规**：不执行恶意操作，不存储敏感凭据，不泄露测试数据。
+10. **页面可回收**：默认复用已有标签页；测试过程中新增的标签页必须及时关闭，避免一轮执行后残留大量窗口。
+11. **安全合规**：不执行恶意操作，不存储敏感凭据，不泄露测试数据。
 
 ## Workflow
 
@@ -371,11 +368,31 @@ Playbook 使用 Markdown 保存，内容至少包括：
 * 严格按 Playbook 中的步骤执行；
 * 通过 chrome-devtools-mcp 的 MCP 工具直接操作浏览器；
 * 适配动态页面加载，加入合理等待与重试；
+* 执行期间必须遵守“页面生命周期管理”规则，避免累计打开多个残留标签页；
 * 单个用例失败时：
   * 记录失败原因；
   * 暂停当前用例；
   * 跳过到下一个用例；
   * 不中断整个测试任务。
+
+#### 8.0 页面生命周期管理
+
+浏览器页面的默认策略是“**优先复用，新增必回收**”。执行测试时必须按以下顺序处理：
+
+01. **记录基线页面**：在正式执行前调用一次 `list_pages`，记录当前已存在的页面列表，作为本轮测试前的基线。
+02. **优先复用单一工作页**：若已有可操作页面，优先 `select_page` 后 `navigate_page` 到目标 URL；不要为站内跳转频繁调用 `new_page`。
+03. **仅在必要时新开页**：只有当页面行为天然要求新标签页承载内容，或必须保留来源页状态时，才允许调用 `new_page` 或跟随站点打开新页。
+04. **新页立即接管**：一旦出现新标签页，立即再次 `list_pages`，识别新增页面，`select_page` 到该页面完成检查、截图或断言。
+05. **检查完立即关闭**：对非主工作页，完成当前步骤后立刻调用 `close_page` 关闭；关闭后切回主工作页或原来源页继续执行。
+06. **外链默认不驻留**：站外链接、帮助页、GitHub、备案页等只用于验证“能否打开/内容是否正确”时，验证完成即关闭，不得保留到用例结束。
+07. **结束时统一清场**：整轮测试结束后再次 `list_pages`，关闭所有“本轮新增且不在基线中的页面”；若只能保留最后一个页面，则优先保留原基线页面。
+08. **清场失败要记录**：若有页面因为浏览器限制或页面状态无法关闭，需在最终结果和报告中明确写出残留页面标题、URL 与原因。
+
+补充约束：
+
+* MCP Driver 下使用 `close_page(pageId)` 完成关闭。
+* CDP Driver 下使用 `POST /close_page` 完成关闭。
+* 若页面数量在执行中持续增长，应优先判定为流程缺陷，先清理页面再继续，不要放任累计到数十个窗口。
 
 #### 8.1 SPA 框架表单交互策略
 
@@ -472,6 +489,18 @@ take_screenshot(uid="目标元素uid", filePath="截图路径")
 ```
 
 **禁止**只截取 viewport 可视区域（不带 fullPage 且不指定 uid），因为这往往只截到导航栏，遗漏核心内容。
+
+#### 9.2 截图前等待
+
+截图前必须做“页面稳定等待”，避免拿到 loading / skeleton 画面。优先级如下：
+
+01. **优先等业务文本**：对外部页面或慢站点，先用 `wait_for` 等到关键文本出现（例如备案页等“ICP备案查询”）。
+02. **其次等页面就绪**：使用 `evaluate_script` 判断 `document.readyState === 'complete'`，必要时再加一小段延迟让渲染稳定。
+03. **最后兜底重试**：若截图仍明显为 loading，可在 2~3 次内重试（每次间隔 300~800ms），并在报告中注明重试。
+
+CDP Driver 说明：
+
+* `cdp-proxy` 的 `/take_screenshot` 已做 best-effort 的页面稳定等待（`readyState` / 常见 loading mask / 图片完成），但对无限加载/重定向页仍可能超时；遇到这类页面依然建议使用“等业务文本”的方式兜底。
 
 ### 10. 统计报错
 
@@ -602,8 +631,8 @@ take_screenshot(uid="目标元素uid", filePath="截图路径")
 
 示例：
 
-* “用 ui-testing-skill 测试 <https://www.example.com>”
-* “用 ui-testing-skill 测试 <https://www.example.com/path1>，更新用例”
+* “用 ui-testing 测试 <https://www.example.com>”
+* “用 ui-testing 测试 <https://www.example.com/path1>，更新用例”
 
 处理规则：
 
@@ -853,7 +882,7 @@ take_screenshot(uid="目标元素uid", filePath="截图路径")
 
 用户：
 
-> 用 ui-testing-skill 测试 <https://www.example.com/path1>，更新用例
+> 用 ui-testing 测试 <https://www.example.com/path1>，更新用例
 
 期望行为：
 
@@ -867,7 +896,7 @@ take_screenshot(uid="目标元素uid", filePath="截图路径")
 
 用户：
 
-> 用 ui-testing-skill 测试 <https://www.demo.com>，不更新用例
+> 用 ui-testing 测试 <https://www.demo.com>，不更新用例
 
 期望行为：
 

@@ -6,7 +6,7 @@
 * 站点根文件夹：paste.org.cn
 * Playbook文件名：paste.org.cn.md
 * 创建时间：2026-04-09 14:34:30
-* 更新时间：2026-04-09 14:34:30
+* 更新时间：2026-04-10 19:00:00
 * 用例总数：6
 
 ## 测试用例列表
@@ -121,10 +121,13 @@ root.$children[0].$children[1].$children[0]
 该组件包含：
 * `form.langtype` — 语言类型
 * `form.content` — 代码内容
-* `form.password` — 密码（null 表示不设密码）
+* `form.password` — 密码（null 表示不设密码，对应 `#__BVID__22`，placeholder: "无需设置密码请留空"）
 * `form.expireDate` — 过期时间
-* `read_once` — 阅后即焚（`['on']` 表示开启，`[]` 表示关闭）
+* `read_once` — 阅后即焚 checkbox 的 v-model（`['on']` 表示开启，`[]` 表示关闭）
+* `flag` — 阅后即焚的组件级 data 属性（`true` 表示开启，`false` 表示关闭），与 `read_once` 关联但独立；通过 Vue 实例操作时设置 `comp.flag = true` 即可
 * `onSubmit()` 方法 — 提交表单（需传入 `{ preventDefault: () => {} }` 参数）
+
+> ⚠️ 注意： `form.password` 是密码字段，不是阅后即焚字段。误设 `form.password = "true"` 会导致粘贴被密码保护而非阅后即焚。
 
 ### 表单交互方式
 
@@ -173,5 +176,16 @@ await comp.onSubmit({
 
 * 使用 Vue Router（history mode）
 * 保存成功后不改变 `window.location.href`，仅切换组件视图
-* 判断保存成功需检查 `take_snapshot` 中是否出现"保存成功"文本
-* 访问无效链接时会跳转到 `https://paste.org.cn/not_found`
+* 判断保存成功需检查 `take_snapshot` 中是否出现分享链接文本
+* 访问无效链接时会跳转到 `https://paste.org.cn/not_found`，显示"您访问的页面没有找到"
+* 阅后即焚粘贴首次查看后再次访问会跳转到 `/not_found`
+
+### 表单元素选择器映射
+
+| 字段 | 选择器 | 类型 |
+|------|--------|------|
+| 语言类型 | `#__BVID__20` | select |
+| 密码 | `#__BVID__22` | input[type=password] |
+| 过期时间 | `#__BVID__24` | select |
+| 代码内容 | `#__BVID__26` | textarea |
+| 阅后即焚 | `#__BVID__29` | checkbox |
