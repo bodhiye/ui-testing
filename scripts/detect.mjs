@@ -7,10 +7,13 @@
  *   detectFramework         — 识别 SPA 框架（Vue2/Vue3/React/Angular/jQuery …）
  *   detectFormElements      — 收集页面所有表单元素的类型、选择器、当前值、可选项
  *   findVue2FormComponent   — Vue 2 专用：递归查找持有表单数据的组件路径及方法列表
+ *   detectComponentLib      — 识别 UI 组件库（Arco Design / Ant Design / Element UI / MUI …）
+ *   detectPagePattern       — 识别页面结构模式（列表+详情 / 向导 / Dashboard / 表单页 …）
  *
  * 进化规则（参见 SKILL.md §13.2）：
  *   - 遇到新框架时，在 detectFramework 的 [EXTEND: new framework] 标记处追加探测逻辑
- *   - 若新框架需要专属的组件查找函数，在文件末尾 [EXTEND: new finder] 标记处追加 export function
+ *   - 遇到新组件库时，在 detectComponentLib 的 [EXTEND: new component lib] 标记处追加探测逻辑
+ *   - 若新框架/组件库需要专属的组件查找函数，在文件末尾 [EXTEND: new finder] 标记处追加 export function
  */
 
 function escapeCssIdentifier(value) {
@@ -271,5 +274,174 @@ export function findVue2FormComponent() {
   return walk(vm, "root", 0);
 }
 
-// [EXTEND: new finder] — 在此处追加新框架专属的组件查找函数，格式：
+export function detectComponentLib() {
+  const result = { library: "unknown", version: null, prefix: null, evidence: [] };
+
+  const checks = [
+    {
+      name: "arco-design",
+      test: () => {
+        const els = document.querySelectorAll("[class*='arco-']");
+        if (els.length > 0) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "arco",
+      versionHint: () => { try { return window.ArcoDesign?.version || null; } catch { return null; } },
+    },
+    {
+      name: "ant-design",
+      test: () => {
+        const els = document.querySelectorAll("[class*='ant-'], .ant-select, .ant-btn, .ant-input, .ant-table");
+        if (els.length > 0) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "ant",
+      versionHint: () => { try { return window.antd?.version || null; } catch { return null; } },
+    },
+    {
+      name: "element-ui",
+      test: () => {
+        const els = document.querySelectorAll("[class*='el-'], .el-button, .el-input, .el-select, .el-table");
+        if (els.length > 0) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "el",
+      versionHint: () => { try { return window.ELEMENT?.version || null; } catch { return null; } },
+    },
+    {
+      name: "element-plus",
+      test: () => {
+        const els = document.querySelectorAll("[class*='el-'], .el-button, .el-input, .el-select");
+        const hasVue3 = !!document.querySelector("[class*='el-']")?.__vue_app__;
+        if (els.length > 0 && hasVue3) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "el",
+      versionHint: () => { try { return window.ElementPlus?.version || null; } catch { return null; } },
+    },
+    {
+      name: "mui",
+      test: () => {
+        const els = document.querySelectorAll("[class*='MuiButton'], [class*='MuiInput'], [class*='MuiSelect'], [class*='MuiTable']");
+        if (els.length > 0) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "Mui",
+      versionHint: () => { try { return window.Mui?.version || null; } catch { return null; } },
+    },
+    {
+      name: "chakra-ui",
+      test: () => {
+        const els = document.querySelectorAll("[class*='chakra'], .chakra-ui__dark");
+        if (els.length > 0) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "chakra",
+      versionHint: () => null,
+    },
+    {
+      name: "bootstrap",
+      test: () => {
+        const els = document.querySelectorAll(".btn, .form-control, .modal, .navbar, .container");
+        if (els.length > 0) return { count: els.length, sample: Array.from(els).slice(0, 3).map(e => e.className.substring(0, 80)) };
+        return null;
+      },
+      prefix: "bs",
+      versionHint: () => { try { return window.bootstrap?.VERSION || (window.jQuery?.fn?.tooltip?.VERSION) || null; } catch { return null; } },
+    },
+    {
+      name: "tailwind",
+      test: () => {
+        const styles = document.querySelectorAll('style');
+        for (const s of styles) {
+          if (s.textContent && s.textContent.includes('tailwindcss')) return { found: true };
+        }
+        return null;
+      },
+      prefix: "tw",
+      versionHint: () => null,
+    },
+  ];
+
+  // [EXTEND: new component lib] — 在 checks 数组末尾追加新组件库探测规则
+
+  for (const check of checks) {
+    const evidence = check.test();
+    if (evidence) {
+      result.library = check.name;
+      result.prefix = check.prefix;
+      result.evidence.push(evidence);
+      result.version = check.versionHint();
+      break;
+    }
+  }
+
+  return result;
+}
+
+export function detectPagePattern() {
+  const result = { patterns: [], primaryPattern: "unknown" };
+
+  const hasTable = document.querySelectorAll("table, [class*='table'], [class*='Table'], [role='table']").length > 0;
+  const hasList = document.querySelectorAll("[class*='list'], [class*='List'], [role='list']").length > 0;
+  const hasForm = document.querySelectorAll("form, [class*='form'], [class*='Form']").length > 0;
+  const hasDetailPanel = document.querySelectorAll("[class*='detail'], [class*='Detail'], [class*='drawer'], [class*='Drawer'], [class*='sidebar'], [class*='Sidebar']").length > 0;
+  const hasWizardSteps = document.querySelectorAll("[class*='step'], [class*='Step'], [class*='wizard'], [class*='Wizard']").length > 0;
+  const hasDashboard = document.querySelectorAll("[class*='dashboard'], [class*='Dashboard'], [class*='chart'], [class*='Chart'], canvas").length > 0;
+  const hasTabs = document.querySelectorAll("[role='tablist'], [class*='tab'], [class*='Tab']").length > 0;
+  const hasModal = document.querySelectorAll("[role='dialog'], [class*='modal'], [class*='Modal'], [class*='dialog'], [class*='Dialog']").length > 0;
+  const hasBreadcrumb = document.querySelectorAll("[class*='breadcrumb'], [class*='Breadcrumb'], nav[aria-label*='readcrumb']").length > 0;
+  const hasPagination = document.querySelectorAll("[class*='pagination'], [class*='Pagination']").length > 0;
+  const hasSearchFilter = document.querySelectorAll("[class*='search'], [class*='filter'], [class*='Search'], [class*='Filter']").length > 0;
+  const hasCreateButton = Array.from(document.querySelectorAll("button, a")).some(el => {
+    const text = (el.innerText || el.textContent || "").trim();
+    return /^(创建|新建|新增|添加|Create|Add|New)/i.test(text);
+  });
+
+  if (hasTable && hasCreateButton && hasSearchFilter) {
+    result.patterns.push({ name: "crud-list", confidence: "high", features: ["table", "create", "search"] });
+  }
+  if (hasTable && hasDetailPanel) {
+    result.patterns.push({ name: "list-detail", confidence: "medium", features: ["table", "detail"] });
+  }
+  if (hasForm && hasWizardSteps) {
+    result.patterns.push({ name: "wizard-form", confidence: "high", features: ["form", "steps"] });
+  }
+  if (hasForm && !hasTable) {
+    result.patterns.push({ name: "simple-form", confidence: "medium", features: ["form"] });
+  }
+  if (hasDashboard && !hasTable) {
+    result.patterns.push({ name: "dashboard", confidence: "high", features: ["charts"] });
+  }
+  if (hasTabs && hasDetailPanel) {
+    result.patterns.push({ name: "tabbed-detail", confidence: "high", features: ["tabs", "detail"] });
+  }
+  if (hasTable && hasPagination) {
+    result.patterns.push({ name: "paginated-list", confidence: "medium", features: ["table", "pagination"] });
+  }
+  if (hasModal) {
+    result.patterns.push({ name: "modal-interaction", confidence: "low", features: ["modal"] });
+  }
+  if (hasBreadcrumb) {
+    result.patterns.push({ name: "nested-navigation", confidence: "low", features: ["breadcrumb"] });
+  }
+  if (!hasTable && !hasForm && !hasDashboard) {
+    result.patterns.push({ name: "static-page", confidence: "low", features: [] });
+  }
+
+  if (result.patterns.length > 0) {
+    const priority = ["crud-list", "wizard-form", "list-detail", "tabbed-detail", "dashboard", "paginated-list", "simple-form", "modal-interaction", "nested-navigation", "static-page"];
+    for (const p of priority) {
+      const found = result.patterns.find(pt => pt.name === p);
+      if (found) {
+        result.primaryPattern = found.name;
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+// [EXTEND: new finder] — 在此处追加新框架/组件库专属的组件查找函数，格式：
 // export function findXxxFormComponent() { ... }
