@@ -49,6 +49,16 @@ const BROWSER_HTTP =
   process.env.BROWSER_HTTP || `http://${CHROME_HOST}:${CHROME_PORT}`;
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 2 * 1024 * 1024);
 const CDP_TIMEOUT_MS = Number(process.env.CDP_TIMEOUT_MS || 30_000);
+// Best-effort: reduce "loading/skeleton" screenshots.
+// Set SCREENSHOT_WAIT_DISABLE=1 to skip waiting.
+const SCREENSHOT_WAIT_DISABLE = process.env.SCREENSHOT_WAIT_DISABLE === "1";
+const DEFAULT_SCREENSHOT_WAIT_TIMEOUT_MS = Number(
+  process.env.SCREENSHOT_WAIT_TIMEOUT_MS || 15_000,
+);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function json(res, statusCode, obj) {
   const body = JSON.stringify(obj);
@@ -589,6 +599,88 @@ class TargetManager {
       return { targetId: tid, data }; // base64 png
     };
 
+    const waitForPageStable = async (
+      timeoutMs = DEFAULT_SCREENSHOT_WAIT_TIMEOUT_MS,
+    ) => {
+      if (SCREENSHOT_WAIT_DISABLE) return { ok: true, skipped: true };
+
+      const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+      const pollIntervalMs = 250;
+      // Don't block forever on lazy images if everything else looks stable.
+      const imageGraceMs = 1200;
+      let firstNonLoadingAt = null;
+      let last = null;
+
+      const probeExpr = `(() => {
+        const hasLoadingMask = () => {
+          const selectors = [
+            '[aria-busy="true"]',
+            '[data-loading="true"]',
+            '.loading', '.loader', '.spinner', '.spinning',
+            '.skeleton', '.skeleton-loading', '.ant-spin', '.ant-skeleton',
+            '.el-loading-mask', '.el-loading-spinner',
+            '.ivu-spin', '.ivu-skeleton',
+            '.MuiCircularProgress-root',
+          ];
+          for (const sel of selectors) {
+            try { if (document.querySelector(sel)) return true; } catch {}
+          }
+          return false;
+        };
+        const bodyText = (() => {
+          try { return (document.body && (document.body.innerText || '')) || ''; } catch { return ''; }
+        })();
+        const loadingText = /\\bloading\\b/i.test(bodyText) || /加载中|正在加载|请稍候/.test(bodyText);
+        let imagesTotal = 0;
+        let imagesDone = 0;
+        try {
+          const imgs = Array.from(document.images || []);
+          imagesTotal = imgs.length;
+          imagesDone = imgs.filter((img) => img.complete).length;
+        } catch {}
+        let readyState = 'unknown';
+        try { readyState = document.readyState; } catch {}
+        return { readyState, loadingMask: hasLoadingMask(), loadingText, imagesTotal, imagesDone };
+      })()`;
+
+      while (Date.now() < deadline) {
+        try {
+          const { result, exceptionDetails } = await this.conn.send(
+            "Runtime.evaluate",
+            { expression: probeExpr, awaitPromise: false, returnByValue: true },
+            sessionId,
+          );
+          if (exceptionDetails) last = { ok: false, error: "probe-exception" };
+          else last = result && result.value ? result.value : null;
+        } catch (e) {
+          last = { ok: false, error: String(e && e.message ? e.message : e) };
+        }
+
+        const looksStable =
+          last &&
+          last.readyState === "complete" &&
+          !last.loadingMask &&
+          !last.loadingText;
+
+        if (looksStable) {
+          if (!firstNonLoadingAt) firstNonLoadingAt = Date.now();
+          const imagesOk =
+            !last.imagesTotal ||
+            last.imagesDone >= last.imagesTotal ||
+            Date.now() - firstNonLoadingAt >= imageGraceMs;
+          if (imagesOk) return { ok: true, last };
+        } else {
+          firstNonLoadingAt = null;
+        }
+
+        await sleep(pollIntervalMs);
+      }
+
+      return { ok: false, timeoutMs: Number(timeoutMs) || 0, last };
+    };
+
+    const wait = await waitForPageStable();
+
     if (fullPage) {
       // Full-page capture must not mutate the page viewport. We clear any stale
       // override left by previous runs, read the current real viewport, and then
@@ -636,7 +728,7 @@ class TargetManager {
         },
         sessionId,
       );
-      return persistScreenshot(data);
+      return { ...persistScreenshot(data), wait };
     }
 
     const { data } = await this.conn.send(
@@ -647,7 +739,7 @@ class TargetManager {
       },
       sessionId,
     );
-    return persistScreenshot(data);
+    return { ...persistScreenshot(data), wait };
   }
 }
 
@@ -747,6 +839,8 @@ async function main() {
           targetId: body.targetId,
           fullPage: body.fullPage !== false,
           filePath: body.filePath,
+          // NOTE: wait options are controlled by env vars for now. Keep the HTTP
+          // API surface minimal and compatible with MCP semantics.
         });
         return json(res, 200, out);
       }

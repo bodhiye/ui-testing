@@ -1,7 +1,7 @@
 {
-  "name": "ui-testing-skill",
-  "description": "复用本地已登录 Chrome 会话的 UI 自动化测试工具：先分析页面并沉淀 path 级 playbook，再按优先级执行 E2E 用例并输出标准化报告。",
-  "version": "1.0.0",
+  "name": "ui-testing",
+  "description": "复用本地已登录 Chrome 会话的 UI 自动化测试工具：先分析页面并沉淀 path 级 playbook，再按优先级执行 E2E 用例并输出标准化报告。支持自我进化：组件库知识库、失败模式挖掘、置信度管理、历史趋势检测。",
+  "version": "2.0.0",
   "entry": "SKILL.md",
   "triggers": [
     "ui 自动化测试",
@@ -13,7 +13,10 @@
     "更新用例",
     "查询 Playbook",
     "查询报错",
-    "导出测试报告"
+    "导出测试报告",
+    "组件库交互",
+    "进化日志",
+    "知识库"
   ],
   "inputs": {
     "url": {
@@ -30,7 +33,7 @@
     "command": {
       "type": "string",
       "required": false,
-      "description": "辅助指令，如 queryPlaybook、exportReport、stopTest、queryErrors、editCase、deleteCase"
+      "description": "辅助指令，如 queryPlaybook、exportReport、stopTest、queryErrors、editCase、deleteCase、queryKnowledge、evolutionStatus"
     },
     "instruction": {
       "type": "string",
@@ -51,7 +54,16 @@
     "playbook_editing",
     "e2e_execution",
     "error_aggregation",
-    "markdown_report_generation"
+    "markdown_report_generation",
+    "component_lib_detection",
+    "page_pattern_detection",
+    "component_lib_knowledge",
+    "failure_pattern_mining",
+    "knowledge_confidence_management",
+    "historical_trend_tracking",
+    "flaky_test_detection",
+    "regression_detection",
+    "evolution_logging"
   ],
   "constraints": [
     "仅处理单个 URL",
@@ -59,5 +71,9 @@
     "仅遍历待测域名内页面",
     "不执行恶意、破坏性或越权操作",
     "不持久化存储敏感凭据"
-  ]
+  ],
+  "knowledgePaths": {
+    "componentLib": "knowledge/component-lib.md",
+    "evolutionLog": "knowledge/evolution-log.md"
+  }
 }
